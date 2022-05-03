@@ -321,6 +321,7 @@ impl Font {
             None
         };
 
+        eprintln!("{} {}", char_to_glyph.len(), glyphs.len());
         Ok(Font {
             name,
             glyphs,
@@ -334,50 +335,7 @@ impl Font {
         })
     }
 
-    pub fn render_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: FontSettings) -> FontResult<Vec<(Metrics, Vec<u8>)>> {
-        let face = match Face::from_slice(&data, settings.collection_index) {
-            Ok(f) => f,
-            Err(e) => return Err(convert_error(e)),
-        };
 
-        let units_per_em = face.units_per_em() as f32;
-        // Collect all the unique codepoint to glyph mappings.
-        let glyph_count = face.number_of_glyphs();
-        let mut v = Vec::with_capacity(glyph_count as usize);
-        let mut seen = HashSet::with_capacity(glyph_count as usize);
-        if let Some(subtable) = face.tables().cmap {
-            for subtable in subtable.subtables {
-                subtable.codepoints(|codepoint| {
-                    if let Some(mapping) = subtable.glyph_index(codepoint) {
-                        if let Some(mapping) = NonZeroU16::new(mapping.0) {
-                            if !seen.insert(mapping) {
-                                return;
-                            }
-                            let index = mapping.get();
-                            if index >= glyph_count {
-                                return;
-                            }
-
-                            let mut glyph = Glyph::default();
-                            let glyph_id = GlyphId(index);
-                            if let Some(advance_width) = face.glyph_hor_advance(glyph_id) {
-                                glyph.advance_width = advance_width as f32;
-                            }
-                            if let Some(advance_height) = face.glyph_ver_advance(glyph_id) {
-                                glyph.advance_height = advance_height as f32;
-                            }
-
-                            let mut geometry = Geometry::new(settings.scale, units_per_em);
-                            face.outline_glyph(glyph_id, &mut geometry);
-                            geometry.finalize(&mut glyph);
-                            v.push(rasterize_glyph(glyph, units_per_em, px));
-                        }
-                    }
-                })
-            }
-        }
-        Ok(v)
-    }
 
     /// Returns all valid unicode codepoints that have mappings to glyph geometry in the font, along
     /// with their associated index. This does not include grapheme cluster mappings. The mapped
@@ -662,6 +620,117 @@ impl Font {
     pub fn glyph_count(&self) -> u16 {
         self.glyphs.len() as u16
     }
+}
+
+pub struct RasterIterator<'a> {
+    face: Face<'a>,
+    chars: Vec<(char, GlyphId)>,
+    units_per_em: f32,
+    px: f32,
+    scale: f32,
+}
+
+impl<'a> RasterIterator<'a> {
+    pub fn new(data: &'a [u8], px: f32, settings: FontSettings) -> FontResult<Self> {
+        let face = match Face::from_slice(&data, settings.collection_index) {
+            Ok(f) => f,
+            Err(e) => return Err(convert_error(e)),
+        };
+
+        let units_per_em = face.units_per_em() as f32;
+        // Collect all the unique codepoint to glyph mappings.
+        let glyph_count = face.number_of_glyphs();
+        let mut chars = Vec::with_capacity(glyph_count as usize);
+        let mut seen_mappings = HashSet::new();
+        if let Some(table) = face.tables().cmap {
+            for subtable in table.subtables {
+                subtable.codepoints(|codepoint| {
+                    if let Some(gid) = subtable.glyph_index(codepoint) {
+                        if let Some(mapping) = NonZeroU16::new(gid.0) {
+                            if seen_mappings.insert(mapping.get()) {
+                                chars.push((char::from_u32(codepoint).unwrap(), gid));
+                            }
+                        }
+                    }
+                })
+            }
+        } else {
+            return Err("No cmap table on font");
+        };
+        Ok(Self {
+            face,
+            chars,
+            units_per_em,
+            px,
+            scale: settings.scale,
+        })
+    }
+}
+
+impl<'a> Iterator for RasterIterator<'a> {
+    type Item = (char, (Metrics, Vec<u8>));
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (char, glyph_id) = self.chars.pop()?;
+        let mut glyph = Glyph::default();
+        if let Some(advance_width) = self.face.glyph_hor_advance(glyph_id) {
+            glyph.advance_width = advance_width as f32;
+        }
+        if let Some(advance_height) = self.face.glyph_ver_advance(glyph_id) {
+            glyph.advance_height = advance_height as f32;
+        }
+
+        let mut geometry = Geometry::new(self.scale, self.units_per_em);
+        self.face.outline_glyph(glyph_id, &mut geometry);
+        geometry.finalize(&mut glyph);
+        Some((char, rasterize_glyph(glyph, self.units_per_em, self.px)))
+    }
+}
+
+
+pub fn render_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: FontSettings) -> FontResult<Vec<(Metrics, Vec<u8>)>> {
+    let face = match Face::from_slice(&data, settings.collection_index) {
+        Ok(f) => f,
+        Err(e) => return Err(convert_error(e)),
+    };
+
+    let units_per_em = face.units_per_em() as f32;
+    // Collect all the unique codepoint to glyph mappings.
+    let glyph_count = face.number_of_glyphs();
+    let mut v = Vec::with_capacity(glyph_count as usize);
+    let mut seen = HashSet::with_capacity(glyph_count as usize);
+    if let Some(subtable) = face.tables().cmap {
+        for subtable in subtable.subtables {
+            subtable.codepoints(|codepoint| {
+                if let Some(mapping) = subtable.glyph_index(codepoint) {
+                    if let Some(mapping) = NonZeroU16::new(mapping.0) {
+                        if !seen.insert(mapping) {
+                            return;
+                        }
+                        let index = mapping.get();
+                        if index >= glyph_count {
+                            return;
+                        }
+
+                        let mut glyph = Glyph::default();
+                        let glyph_id = GlyphId(index);
+                        if let Some(advance_width) = face.glyph_hor_advance(glyph_id) {
+                            glyph.advance_width = advance_width as f32;
+                        }
+                        if let Some(advance_height) = face.glyph_ver_advance(glyph_id) {
+                            glyph.advance_height = advance_height as f32;
+                        }
+
+                        let mut geometry = Geometry::new(settings.scale, units_per_em);
+                        face.outline_glyph(glyph_id, &mut geometry);
+                        geometry.finalize(&mut glyph);
+                        v.push(rasterize_glyph(glyph, units_per_em, px));
+                    }
+                }
+            })
+        }
+    }
+    Ok(v)
 }
 
 fn rasterize_glyph(glyph: Glyph, units_per_em: f32, px: f32) -> (Metrics, Vec<u8>) {
