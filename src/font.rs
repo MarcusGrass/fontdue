@@ -12,7 +12,7 @@ use core::hash::{Hash, Hasher};
 use core::mem;
 use core::num::NonZeroU16;
 use core::ops::Deref;
-use hashbrown::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use ttf_parser::{Face, FaceParsingError, GlyphId, Tag};
 
 #[cfg(feature = "parallel")]
