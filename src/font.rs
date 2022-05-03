@@ -668,7 +668,7 @@ impl<'a> RasterIterator<'a> {
 }
 
 impl<'a> Iterator for RasterIterator<'a> {
-    type Item = (char, (Metrics, Vec<u8>));
+    type Item = RasterizedChar;
 
     fn next(&mut self) -> Option<Self::Item> {
         let (char, glyph_id) = self.chars.pop()?;
@@ -683,12 +683,27 @@ impl<'a> Iterator for RasterIterator<'a> {
         let mut geometry = Geometry::new(self.scale, self.units_per_em);
         self.face.outline_glyph(glyph_id, &mut geometry);
         geometry.finalize(&mut glyph);
-        Some((char, rasterize_glyph(glyph, self.units_per_em, self.px)))
+        let (metrics, buf) = rasterize_glyph(glyph, units_per_em, px);
+        Some(RasterizedChar {
+            ch: char,
+            metrics,
+            buf
+        })
     }
 }
 
+pub struct RasterizedFontData {
+    pub max_height: usize,
+    pub data: Vec<RasterizedChar>,
+}
 
-pub fn render_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: FontSettings) -> FontResult<Vec<(Metrics, Vec<u8>)>> {
+pub struct RasterizedChar {
+    pub ch: char,
+    pub metrics: Metrics,
+    pub buf: Vec<u8>,
+}
+
+pub fn rasterize_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: FontSettings) -> FontResult<RasterizedFontData> {
     let face = match Face::from_slice(&data, settings.collection_index) {
         Ok(f) => f,
         Err(e) => return Err(convert_error(e)),
@@ -699,6 +714,7 @@ pub fn render_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: Fon
     let glyph_count = face.number_of_glyphs();
     let mut v = Vec::with_capacity(glyph_count as usize);
     let mut seen = HashSet::with_capacity(glyph_count as usize);
+    let mut max_height = 0;
     if let Some(subtable) = face.tables().cmap {
         for subtable in subtable.subtables {
             subtable.codepoints(|codepoint| {
@@ -724,13 +740,25 @@ pub fn render_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: Fon
                         let mut geometry = Geometry::new(settings.scale, units_per_em);
                         face.outline_glyph(glyph_id, &mut geometry);
                         geometry.finalize(&mut glyph);
-                        v.push(rasterize_glyph(glyph, units_per_em, px));
+                        let ch = char::from_u32(codepoint).unwrap();
+                        let (metrics, buf) = rasterize_glyph(glyph, units_per_em, px);
+                        if max_height < metrics.height {
+                            max_height = metrics.height;
+                        }
+                        v.push(RasterizedChar {
+                            ch,
+                            metrics,
+                            buf
+                        })
                     }
                 }
             })
         }
     }
-    Ok(v)
+    Ok(RasterizedFontData {
+        max_height,
+        data: v
+    })
 }
 
 fn rasterize_glyph(glyph: Glyph, units_per_em: f32, px: f32) -> (Metrics, Vec<u8>) {

@@ -43,7 +43,7 @@ mod tests {
     fn rasterize_oneshot() {
         let jetbrains_mono = "/usr/share/fonts/TTF/JetBrains Mono Medium Nerd Font Complete.ttf";
         let font_bytes = std::fs::read(jetbrains_mono).unwrap();
-        let rasterized = crate::render_all(font_bytes.as_slice(), 12.0, FontSettings {
+        let rasterized = crate::rasterize_all(font_bytes.as_slice(), 12.0, FontSettings {
             collection_index: 0,
             scale: 600.0
         }).unwrap();

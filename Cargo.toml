@@ -21,7 +21,7 @@ default = ["simd"]
 # Enable this flag to leverage SIMD usage on x86/x86_64 platforms.
 simd = []
 # Enable this flag to parallelize font loading using threads.
-parallel = ["rayon", "hashbrown/rayon"]
+parallel = ["rayon", "hashbrown", "hashbrown/rayon"]
 
 [dependencies]
 ttf-parser = { version = "0.15", default-features = false }
