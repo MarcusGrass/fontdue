@@ -683,7 +683,7 @@ impl<'a> Iterator for RasterIterator<'a> {
         let mut geometry = Geometry::new(self.scale, self.units_per_em);
         self.face.outline_glyph(glyph_id, &mut geometry);
         geometry.finalize(&mut glyph);
-        let (metrics, buf) = rasterize_glyph(glyph, units_per_em, px);
+        let (metrics, buf) = rasterize_glyph(glyph, self.units_per_em, self.px);
         Some(RasterizedChar {
             ch: char,
             metrics,
