@@ -321,7 +321,6 @@ impl Font {
             None
         };
 
-        eprintln!("{} {}", char_to_glyph.len(), glyphs.len());
         Ok(Font {
             name,
             glyphs,
@@ -693,7 +692,7 @@ impl<'a> Iterator for RasterIterator<'a> {
 }
 
 pub struct RasterizedFontData {
-    pub max_height: usize,
+    pub max_height: i32,
     pub data: Vec<RasterizedChar>,
 }
 
@@ -742,8 +741,9 @@ pub fn rasterize_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: 
                         geometry.finalize(&mut glyph);
                         let ch = char::from_u32(codepoint).unwrap();
                         let (metrics, buf) = rasterize_glyph(glyph, units_per_em, px);
-                        if max_height < metrics.height {
-                            max_height = metrics.height;
+                        let compensated_max = metrics.height as i32 + metrics.ymin;
+                        if max_height < compensated_max {
+                            max_height = compensated_max;
                         }
                         v.push(RasterizedChar {
                             ch,

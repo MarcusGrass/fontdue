@@ -34,7 +34,7 @@ mod tests {
         let font_bytes = std::fs::read(jetbrains_mono).unwrap();
         let font = Font::from_bytes(font_bytes.as_slice(), FontSettings {
             collection_index: 0,
-            scale: 600.0
+            scale: 40.0
         }).unwrap();
         eprintln!("{}", font.glyph_count());
     }
@@ -47,7 +47,7 @@ mod tests {
             collection_index: 0,
             scale: 600.0
         }).unwrap();
-        eprintln!("{}", rasterized.len());
+        eprintln!("{}", rasterized.data.len());
         drop(rasterized);
         drop(font_bytes);
     }
@@ -60,7 +60,7 @@ mod tests {
             collection_index: 0,
             scale: 600.0
         }).unwrap();
-        while let Some((char, (metrics, buf))) = it.next() {
+        while let Some(data) = it.next() {
             //eprintln!("{char}, {metrics:?}");
         }
         drop(font_bytes);
