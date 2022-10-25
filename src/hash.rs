@@ -24,6 +24,7 @@
 //! this hash in places where collissions or DDOS attacks may be a concern.
 
 use core::convert::TryInto;
+use core::hash::{BuildHasher};
 use core::ops::BitXor;
 
 const ROTATE: u32 = 5;
@@ -82,7 +83,7 @@ fn read_u64(buf: &[u8]) -> u64 {
 
 #[inline]
 #[cfg(target_pointer_width = "32")]
-fn write(initial_state: usize, mut bytes: &[u8]) -> usize {
+fn write(initial_state: usize, mut bytes: &[u8]) -> u32 {
     let mut hash = initial_state as u32;
     while bytes.len() >= 4 {
         let n = read_u32(bytes);
@@ -93,12 +94,46 @@ fn write(initial_state: usize, mut bytes: &[u8]) -> usize {
     for byte in bytes {
         hash.hash_word(*byte as u32);
     }
-    hash as usize
+    hash
 }
+
+#[derive(Debug, Copy, Clone)]
+pub struct FontHasher {
+    val: u64,
+}
+
+impl Default for FontHasher {
+    fn default() -> Self {
+        Self {
+            val: SEED64
+        }
+    }
+}
+
+impl BuildHasher for FontHasher {
+    type Hasher = Self;
+
+    fn build_hasher(&self) -> Self::Hasher {
+        *self
+    }
+}
+
+impl core::hash::Hasher for FontHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.val
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        self.val = self.val.overflowing_add(write(0, bytes) as u64).0
+    }
+}
+
 
 #[inline]
 #[cfg(target_pointer_width = "64")]
-fn write(initial_state: usize, mut bytes: &[u8]) -> usize {
+fn write(initial_state: usize, mut bytes: &[u8]) -> u64 {
     let mut hash = initial_state as u64;
     while bytes.len() >= 8 {
         let n = read_u64(bytes);
@@ -115,9 +150,9 @@ fn write(initial_state: usize, mut bytes: &[u8]) -> usize {
     for byte in bytes {
         hash.hash_word(*byte as u64);
     }
-    hash as usize
+    hash
 }
 
 pub fn hash(bytes: &[u8]) -> usize {
-    write(0usize, bytes)
+    write(0usize, bytes) as usize
 }

@@ -1,12 +1,13 @@
 use crate::table::parse::*;
 use hashbrown::HashMap;
+use crate::hash::FontHasher;
 
 // Apple: https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6kern.html
 // Microsoft: https://docs.microsoft.com/en-us/typography/opentype/spec/kern
 
 #[derive(Debug)]
 pub struct TableKern {
-    pub horizontal_mappings: HashMap<u32, i16>,
+    pub horizontal_mappings: HashMap<u32, i16, FontHasher>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -95,10 +96,10 @@ impl TableKern {
         None // Font.kern: No supported sub-table format available.
     }
 
-    fn read_format0(stream: &mut Stream) -> Option<HashMap<u32, i16>> {
+    fn read_format0(stream: &mut Stream) -> Option<HashMap<u32, i16, FontHasher>> {
         let pairs = stream.read_u16()?;
         stream.skip(6); // searchRange: u16, entrySelector: u16, rangeShift: u16
-        let mut mappings = HashMap::new();
+        let mut mappings = HashMap::with_hasher(FontHasher::default());
         for _ in 0..pairs {
             let left = stream.read_u16()?;
             let right = stream.read_u16()?;
@@ -109,7 +110,7 @@ impl TableKern {
         Some(mappings)
     }
 
-    fn read_format3(stream: &mut Stream) -> Option<HashMap<u32, i16>> {
+    fn read_format3(stream: &mut Stream) -> Option<HashMap<u32, i16, FontHasher>> {
         let glyph_count = stream.read_u16()?;
         let kerning_values_count = stream.read_u8()?;
         let left_hand_classes_count = stream.read_u8()?;
@@ -122,7 +123,7 @@ impl TableKern {
         let right_hand_classes = stream.read_u8_slice(usize::from(glyph_count))?;
         let indices = stream.read_u8_slice(usize::from(indices_count))?;
 
-        let mut mappings = HashMap::new();
+        let mut mappings = HashMap::with_hasher(FontHasher::default());
         for left in 0..glyph_count {
             for right in 0..glyph_count {
                 if let Some((id, value)) = {
