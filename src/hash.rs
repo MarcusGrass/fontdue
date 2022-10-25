@@ -100,12 +100,14 @@ fn write(initial_state: usize, mut bytes: &[u8]) -> u32 {
 #[derive(Debug, Copy, Clone)]
 pub struct FontHasher {
     val: u64,
+    state: u64,
 }
 
 impl Default for FontHasher {
     fn default() -> Self {
         Self {
-            val: SEED64
+            val: SEED64,
+            state: SEED64,
         }
     }
 }
@@ -126,7 +128,8 @@ impl core::hash::Hasher for FontHasher {
 
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
-        self.val = self.val.overflowing_add(write(0, bytes) as u64).0
+        self.val = self.val.overflowing_add(write(self.state as usize, bytes) as u64).0;
+        self.state = self.val;
     }
 }
 
