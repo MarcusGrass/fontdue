@@ -20,6 +20,7 @@ mod table;
 mod unicode;
 
 pub use crate::font::*;
+pub use crate::hash::FontHasher;
 
 /// Alias for Result<T, &'static str>.
 pub type FontResult<T> = Result<T, &'static str>;
