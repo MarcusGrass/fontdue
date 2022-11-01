@@ -619,3 +619,177 @@ impl Font {
         self.glyphs.len() as u16
     }
 }
+
+pub struct RasterIterator<'a> {
+    face: Face<'a>,
+    chars: Vec<(char, GlyphId)>,
+    units_per_em: f32,
+    px: f32,
+    scale: f32,
+}
+
+impl<'a> RasterIterator<'a> {
+    pub fn new(data: &'a [u8], px: f32, settings: FontSettings) -> FontResult<Self> {
+        let face = match Face::parse(&data, settings.collection_index) {
+            Ok(f) => f,
+            Err(e) => return Err(convert_error(e)),
+        };
+
+        let units_per_em = face.units_per_em() as f32;
+        // Collect all the unique codepoint to glyph mappings.
+        let glyph_count = face.number_of_glyphs();
+        let mut chars = Vec::with_capacity(glyph_count as usize);
+        let mut seen_mappings = HashSet::with_hasher(FontHasher::default());
+        if let Some(table) = face.tables().cmap {
+            for subtable in table.subtables {
+                subtable.codepoints(|codepoint| {
+                    if let Some(gid) = subtable.glyph_index(codepoint) {
+                        if let Some(mapping) = NonZeroU16::new(gid.0) {
+                            if seen_mappings.insert(mapping.get()) {
+                                chars.push((char::from_u32(codepoint).unwrap(), gid));
+                            }
+                        }
+                    }
+                })
+            }
+        } else {
+            return Err("No cmap table on font");
+        };
+        Ok(Self {
+            face,
+            chars,
+            units_per_em,
+            px,
+            scale: settings.scale,
+        })
+    }
+}
+
+impl<'a> Iterator for RasterIterator<'a> {
+    type Item = RasterizedChar;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (char, glyph_id) = self.chars.pop()?;
+        let mut glyph = Glyph::default();
+        if let Some(advance_width) = self.face.glyph_hor_advance(glyph_id) {
+            glyph.advance_width = advance_width as f32;
+        }
+        if let Some(advance_height) = self.face.glyph_ver_advance(glyph_id) {
+            glyph.advance_height = advance_height as f32;
+        }
+
+        let mut geometry = Geometry::new(self.scale, self.units_per_em);
+        self.face.outline_glyph(glyph_id, &mut geometry);
+        geometry.finalize(&mut glyph);
+        let (metrics, buf) = rasterize_glyph(glyph, self.units_per_em, self.px);
+        Some(RasterizedChar {
+            ch: char,
+            metrics,
+            buf
+        })
+    }
+}
+
+pub struct RasterizedFontData {
+    pub max_height: i32,
+    pub data: Vec<RasterizedChar>,
+}
+
+pub struct RasterizedChar {
+    pub ch: char,
+    pub metrics: Metrics,
+    pub buf: Vec<u8>,
+}
+
+pub fn rasterize_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: FontSettings) -> FontResult<RasterizedFontData> {
+    let face = match Face::parse(&data, settings.collection_index) {
+        Ok(f) => f,
+        Err(e) => return Err(convert_error(e)),
+    };
+
+    let units_per_em = face.units_per_em() as f32;
+    // Collect all the unique codepoint to glyph mappings.
+    let glyph_count = face.number_of_glyphs();
+    let mut v = Vec::with_capacity(glyph_count as usize);
+    let mut seen = HashSet::with_capacity_and_hasher(glyph_count as usize, FontHasher::default());
+    let mut max_height = 0;
+    if let Some(subtable) = face.tables().cmap {
+        for subtable in subtable.subtables {
+            subtable.codepoints(|codepoint| {
+                if let Some(mapping) = subtable.glyph_index(codepoint) {
+                    if let Some(mapping) = NonZeroU16::new(mapping.0) {
+                        if !seen.insert(mapping) {
+                            return;
+                        }
+                        let index = mapping.get();
+                        if index >= glyph_count {
+                            return;
+                        }
+
+                        let mut glyph = Glyph::default();
+                        let glyph_id = GlyphId(index);
+                        if let Some(advance_width) = face.glyph_hor_advance(glyph_id) {
+                            glyph.advance_width = advance_width as f32;
+                        }
+                        if let Some(advance_height) = face.glyph_ver_advance(glyph_id) {
+                            glyph.advance_height = advance_height as f32;
+                        }
+
+                        let mut geometry = Geometry::new(settings.scale, units_per_em);
+                        face.outline_glyph(glyph_id, &mut geometry);
+                        geometry.finalize(&mut glyph);
+                        let ch = char::from_u32(codepoint).unwrap();
+                        let (metrics, buf) = rasterize_glyph(glyph, units_per_em, px);
+                        let compensated_max = metrics.height as i32 + metrics.ymin;
+                        if max_height < compensated_max {
+                            max_height = compensated_max;
+                        }
+                        v.push(RasterizedChar {
+                            ch,
+                            metrics,
+                            buf
+                        })
+                    }
+                }
+            })
+        }
+    }
+    Ok(RasterizedFontData {
+        max_height,
+        data: v
+    })
+}
+
+fn rasterize_glyph(glyph: Glyph, units_per_em: f32, px: f32) -> (Metrics, Vec<u8>) {
+    if px <= 0.0 {
+        return (Metrics::default(), Vec::new());
+    }
+    let scale = px / units_per_em;
+    let (metrics, offset_x, offset_y) = metrics_raw(scale, &glyph, 0.0);
+    let mut canvas = Raster::new(metrics.width, metrics.height);
+    canvas.draw(&glyph, scale, scale, offset_x, offset_y);
+    (metrics, canvas.get_bitmap())
+}
+
+/// Internal function to generate the metrics, offset_x, and offset_y of the glyph.
+fn metrics_raw(scale: f32, glyph: &Glyph, offset: f32) -> (Metrics, f32, f32) {
+    let bounds = glyph.bounds.scale(scale);
+    let mut offset_x = fract(bounds.xmin + offset);
+    let mut offset_y = fract(1.0 - fract(bounds.height) - fract(bounds.ymin));
+    if is_negative(offset_x) {
+        offset_x += 1.0;
+    }
+    if is_negative(offset_y) {
+        offset_y += 1.0;
+    }
+    let metrics = Metrics {
+        xmin: as_i32(floor(bounds.xmin)),
+        ymin: as_i32(floor(bounds.ymin)),
+        width: as_i32(ceil(bounds.width + offset_x)) as usize,
+        height: as_i32(ceil(bounds.height + offset_y)) as usize,
+        advance_width: scale * glyph.advance_width,
+        advance_height: scale * glyph.advance_height,
+        bounds,
+    };
+    (metrics, offset_x, offset_y)
+}
