@@ -1,6 +1,6 @@
 use crate::table::parse::*;
 use hashbrown::HashMap;
-use crate::hash::{FontHasher, FontHasherBuilder};
+use crate::hash::FontHasherBuilder;
 
 // Apple: https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6kern.html
 // Microsoft: https://docs.microsoft.com/en-us/typography/opentype/spec/kern
