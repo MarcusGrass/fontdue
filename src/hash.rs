@@ -96,27 +96,29 @@ fn write(initial_state: usize, mut bytes: &[u8]) -> u32 {
     }
     hash
 }
+#[derive(Debug, Copy, Clone, Default)]
+pub struct FontHasherBuilder;
 
 #[derive(Debug, Copy, Clone)]
 pub struct FontHasher {
     val: u64,
-    state: u64,
 }
 
 impl Default for FontHasher {
     fn default() -> Self {
         Self {
             val: SEED64,
-            state: SEED64,
         }
     }
 }
 
-impl BuildHasher for FontHasher {
-    type Hasher = Self;
+impl BuildHasher for FontHasherBuilder {
+    type Hasher = FontHasher;
 
     fn build_hasher(&self) -> Self::Hasher {
-        *self
+        FontHasher {
+            val: SEED64
+        }
     }
 }
 
@@ -128,8 +130,7 @@ impl core::hash::Hasher for FontHasher {
 
     #[inline]
     fn write(&mut self, bytes: &[u8]) {
-        self.val = self.val.overflowing_add(write(self.state as usize, bytes) as u64).0;
-        self.state = self.val;
+        self.val = self.val.overflowing_add(write(self.val as usize, bytes) as u64).0;
     }
 }
 

@@ -17,7 +17,7 @@ use ttf_parser::{Face, FaceParsingError, GlyphId, Tag};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use crate::hash::FontHasher;
+use crate::hash::FontHasherBuilder;
 
 /// Defines the bounds for a glyph's outline in subpixels. A glyph's outline is always contained in
 /// its bitmap.
@@ -185,9 +185,9 @@ pub struct Font {
     name: Option<String>,
     units_per_em: f32,
     glyphs: Vec<Glyph>,
-    char_to_glyph: HashMap<char, NonZeroU16, FontHasher>,
+    char_to_glyph: HashMap<char, NonZeroU16, FontHasherBuilder>,
     horizontal_line_metrics: Option<LineMetrics>,
-    horizontal_kern: Option<HashMap<u32, i16, FontHasher>>,
+    horizontal_kern: Option<HashMap<u32, i16, FontHasherBuilder>>,
     vertical_line_metrics: Option<LineMetrics>,
     settings: FontSettings,
     hash: usize,
@@ -244,7 +244,7 @@ impl Font {
         let name = convert_name(&face);
 
         // Optionally get kerning values for the font. This should be a try block in the future.
-        let horizontal_kern: Option<HashMap<u32, i16, FontHasher>> = (|| {
+        let horizontal_kern: Option<HashMap<u32, i16, FontHasherBuilder>> = (|| {
             let table: &[u8] = face.raw_face().table(Tag::from_bytes(&b"kern"))?;
             let table: TableKern = TableKern::new(table)?;
             Some(table.horizontal_mappings)
@@ -252,8 +252,8 @@ impl Font {
 
         // Collect all the unique codepoint to glyph mappings.
         let glyph_count = face.number_of_glyphs();
-        let mut seen_mappings = HashSet::with_capacity_and_hasher(glyph_count as usize, FontHasher::default());
-        let mut char_to_glyph = HashMap::with_capacity_and_hasher(glyph_count as usize, FontHasher::default());
+        let mut seen_mappings = HashSet::with_capacity_and_hasher(glyph_count as usize, FontHasherBuilder);
+        let mut char_to_glyph = HashMap::with_capacity_and_hasher(glyph_count as usize, FontHasherBuilder);
         seen_mappings.insert(0u16);
         if let Some(subtable) = face.tables().cmap {
             for subtable in subtable.subtables {
@@ -338,7 +338,7 @@ impl Font {
     /// Returns all valid unicode codepoints that have mappings to glyph geometry in the font, along
     /// with their associated index. This does not include grapheme cluster mappings. The mapped
     /// NonZeroU16 index can be used in the _indexed font functions.
-    pub fn chars(&self) -> &HashMap<char, NonZeroU16, FontHasher> {
+    pub fn chars(&self) -> &HashMap<char, NonZeroU16, FontHasherBuilder> {
         &self.char_to_glyph
     }
 
@@ -639,7 +639,7 @@ impl<'a> RasterIterator<'a> {
         // Collect all the unique codepoint to glyph mappings.
         let glyph_count = face.number_of_glyphs();
         let mut chars = Vec::with_capacity(glyph_count as usize);
-        let mut seen_mappings = HashSet::with_hasher(FontHasher::default());
+        let mut seen_mappings = HashSet::with_hasher(FontHasherBuilder);
         if let Some(table) = face.tables().cmap {
             for subtable in table.subtables {
                 subtable.codepoints(|codepoint| {
@@ -711,7 +711,7 @@ pub fn rasterize_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: 
     // Collect all the unique codepoint to glyph mappings.
     let glyph_count = face.number_of_glyphs();
     let mut v = Vec::with_capacity(glyph_count as usize);
-    let mut seen = HashSet::with_capacity_and_hasher(glyph_count as usize, FontHasher::default());
+    let mut seen = HashSet::with_capacity_and_hasher(glyph_count as usize, FontHasherBuilder);
     let mut max_height = 0;
     if let Some(subtable) = face.tables().cmap {
         for subtable in subtable.subtables {
