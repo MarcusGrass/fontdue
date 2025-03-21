@@ -24,7 +24,7 @@
 //! this hash in places where collissions or DDOS attacks may be a concern.
 
 use core::convert::TryInto;
-use core::hash::{BuildHasher};
+use core::hash::BuildHasher;
 use core::ops::BitXor;
 
 const ROTATE: u32 = 5;
@@ -117,7 +117,7 @@ impl BuildHasher for FontHasherBuilder {
 
     fn build_hasher(&self) -> Self::Hasher {
         FontHasher {
-            val: SEED64
+            val: SEED64,
         }
     }
 }
@@ -133,7 +133,6 @@ impl core::hash::Hasher for FontHasher {
         self.val = self.val.overflowing_add(write(self.val as usize, bytes) as u64).0;
     }
 }
-
 
 #[inline]
 #[cfg(target_pointer_width = "64")]

@@ -15,9 +15,9 @@ use core::ops::Deref;
 use hashbrown::{HashMap, HashSet};
 use ttf_parser::{Face, FaceParsingError, GlyphId, Tag};
 
+use crate::hash::FontHasherBuilder;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
-use crate::hash::FontHasherBuilder;
 
 /// Defines the bounds for a glyph's outline in subpixels. A glyph's outline is always contained in
 /// its bitmap.
@@ -261,7 +261,7 @@ impl Font {
                     if let Some(mapping) = subtable.glyph_index(codepoint) {
                         if let Some(mapping) = NonZeroU16::new(mapping.0) {
                             seen_mappings.insert(mapping.get());
-                            char_to_glyph.insert(unsafe { mem::transmute(codepoint) }, mapping);
+                            char_to_glyph.insert(unsafe { mem::transmute::<u32, char>(codepoint) }, mapping);
                         }
                     }
                 })
@@ -685,7 +685,7 @@ impl<'a> Iterator for RasterIterator<'a> {
         Some(RasterizedChar {
             ch: char,
             metrics,
-            buf
+            buf,
         })
     }
 }
@@ -701,7 +701,11 @@ pub struct RasterizedChar {
     pub buf: Vec<u8>,
 }
 
-pub fn rasterize_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: FontSettings) -> FontResult<RasterizedFontData> {
+pub fn rasterize_all<Data: Deref<Target = [u8]>>(
+    data: Data,
+    px: f32,
+    settings: FontSettings,
+) -> FontResult<RasterizedFontData> {
     let face = match Face::parse(&data, settings.collection_index) {
         Ok(f) => f,
         Err(e) => return Err(convert_error(e)),
@@ -747,7 +751,7 @@ pub fn rasterize_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: 
                         v.push(RasterizedChar {
                             ch,
                             metrics,
-                            buf
+                            buf,
                         })
                     }
                 }
@@ -756,7 +760,7 @@ pub fn rasterize_all<Data: Deref<Target = [u8]>>(data: Data, px: f32, settings: 
     }
     Ok(RasterizedFontData {
         max_height,
-        data: v
+        data: v,
     })
 }
 
